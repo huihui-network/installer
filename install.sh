@@ -8,10 +8,11 @@ set -euo pipefail
 LOG="/tmp/hhwl-install-$(date +%s).log"
 exec > >(tee "$LOG") 2>&1
 
-INSTALL_VERSION="v1.0"
+INSTALL_VERSION="v1.1"
 SHARED_REPO="huihui-network/claude-shared-config"
-# DMG 在私有仓 release · 用 gh release download 走 auth
-DMG_RELEASE_TAG="v0.9.36-codechat-boss"
+# DMG 在私有仓 release · 动态拉最新 codechat-boss tag · ENV 可 override 装老版本
+# Override 用法: DMG_RELEASE_TAG_OVERRIDE=v0.9.42-codechat-boss bash <(curl ...)
+DMG_RELEASE_TAG="${DMG_RELEASE_TAG_OVERRIDE:-}"
 BACKEND_BASE="https://chat.hhwl.xyz"
 # 装机自身的 raw URL（域名 install.hhwl.xyz 上线前 fallback）
 INSTALL_RAW_URL="https://raw.githubusercontent.com/$SHARED_REPO/main/install.sh"
@@ -127,12 +128,24 @@ echo "▶ Step 6 · CodeChat 账号激活（老板已建好 user · 你需改默
 USERNAME=$(ask "你的 CodeChat 用户名" "")
 [[ -n "$USERNAME" ]] || err "用户名不能为空"
 
-INITIAL_PASSWORD=$(ask "初始密码（老板私发 · 默认 test1234）" "test1234")
-echo "请输入新密码（至少 8 位）："
-# read -s 必走 /dev/tty · 否则 curl|bash 模式下 stdin 是脚本流 · 读到空
+# T-2026-04-27-10-D · 初始密码强制输入 · 拒默认 test1234 · err 不回显密码值
+echo "请输入老板私发的初始密码（不显示 · 至少 8 位）："
+read -s INITIAL_PASSWORD < /dev/tty
+echo
+[[ -n "$INITIAL_PASSWORD" ]] || err "初始密码不能为空"
+[[ ${#INITIAL_PASSWORD} -ge 8 ]] || err "初始密码长度不符要求"
+[[ "$INITIAL_PASSWORD" != "test1234" ]] || err "初始密码不符要求 · 让老板私发新密码"
+
+echo "请输入新密码（至少 8 位 · 不显示）："
 read -s NEW_PASSWORD < /dev/tty
-echo  # 换行
-[[ ${#NEW_PASSWORD} -ge 8 ]] || err "密码至少 8 位"
+echo
+echo "再输入一次确认："
+read -s NEW_PASSWORD2 < /dev/tty
+echo
+[[ "$NEW_PASSWORD" == "$NEW_PASSWORD2" ]] || err "两次新密码不一致"
+[[ ${#NEW_PASSWORD} -ge 8 ]] || err "新密码长度不符要求"
+[[ "$NEW_PASSWORD" != "$INITIAL_PASSWORD" ]] || err "新密码必须跟初始密码不同"
+[[ "$NEW_PASSWORD" != "test1234" ]] || err "新密码不符要求"
 
 # 后端真实 schema（验证过 chat.hhwl.xyz/openapi.json）：
 # - POST /api/users/login: body={name, password} → returns {id, mcp_token, ...}
@@ -186,6 +199,19 @@ mark_step 6
 echo "▶ Step 7 · 装 CodeChat Boss App"
 DMG_PATH="/tmp/CodeChat-Boss.dmg"
 if [[ ! -d "/Applications/CodeChat Boss.app" ]]; then
+  # T-2026-04-27-10-D · DMG_RELEASE_TAG 动态拉最新 codechat-boss · ENV override 兜底
+  if [[ -z "$DMG_RELEASE_TAG" ]]; then
+    echo "  → 查最新 codechat-boss release"
+    DMG_RELEASE_TAG=$(gh release list --repo "$SHARED_REPO" --limit 30 \
+      --json tagName --jq '[.[] | select(.tagName | test("-codechat-boss$"))][0].tagName' \
+      2>/dev/null || true)
+    [[ -n "$DMG_RELEASE_TAG" && "$DMG_RELEASE_TAG" != "null" ]] \
+      || err "查 codechat-boss release tag 失败 · gh auth？或设 DMG_RELEASE_TAG_OVERRIDE 跳过"
+    ok "  最新 release: $DMG_RELEASE_TAG"
+  else
+    ok "  使用 override release: $DMG_RELEASE_TAG"
+  fi
+
   ARCH=$(uname -m)  # arm64 / x86_64
   # 用 gh release download 走 auth · 拉私有仓 DMG
   echo "  → gh release download (arch=$ARCH)"
