@@ -41,8 +41,14 @@ DISK_FREE=$(df -g ~ | awk 'NR==2 {print $4}')
 [[ "$DISK_FREE" -ge 5 ]] || err "磁盘空间不足 5GB（当前 ${DISK_FREE}GB）"
 ok "磁盘 ${DISK_FREE}GB 可用"
 
-# 网络
-curl -fsSL --max-time 5 https://www.apple.com > /dev/null || err "网络不通"
+# 网络（中国网络 apple.com 慢 · 用 HEAD only + 多端点 fallback）
+NET_OK=0
+for endpoint in "$BACKEND_BASE" "https://www.baidu.com" "https://github.com"; do
+  if curl -fsI --max-time 10 "$endpoint" >/dev/null 2>&1; then
+    NET_OK=1; break
+  fi
+done
+[[ "$NET_OK" -eq 1 ]] || err "网络不通（chat.hhwl.xyz / baidu / github 都不通）"
 ok "网络通"
 
 # ============= trap + step marker（半失败可重跑）=============
