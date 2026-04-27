@@ -10,7 +10,8 @@ exec > >(tee "$LOG") 2>&1
 
 INSTALL_VERSION="v1.0"
 SHARED_REPO="huihui-network/claude-shared-config"
-DMG_URL="https://github.com/huihui-network/codechat-boss-build/releases/latest/download/CodeChat-Boss.dmg"
+# DMG 在私有仓 release · 用 gh release download 走 auth
+DMG_RELEASE_TAG="v0.9.36-codechat-boss"
 BACKEND_BASE="https://chat.hhwl.xyz"
 # 装机自身的 raw URL（域名 install.hhwl.xyz 上线前 fallback）
 INSTALL_RAW_URL="https://raw.githubusercontent.com/$SHARED_REPO/main/install.sh"
@@ -185,7 +186,22 @@ mark_step 6
 echo "▶ Step 7 · 装 CodeChat Boss App"
 DMG_PATH="/tmp/CodeChat-Boss.dmg"
 if [[ ! -d "/Applications/CodeChat Boss.app" ]]; then
-  curl -fsSL --max-time 120 "$DMG_URL" -o "$DMG_PATH"
+  ARCH=$(uname -m)  # arm64 / x86_64
+  # 用 gh release download 走 auth · 拉私有仓 DMG
+  echo "  → gh release download (arch=$ARCH)"
+  rm -f "$DMG_PATH"
+  if ! gh release download "$DMG_RELEASE_TAG" \
+       --repo "$SHARED_REPO" \
+       --pattern "CodeChat.Boss-*-${ARCH}.dmg" \
+       --output "$DMG_PATH" 2>&1 | tail -3; then
+    # arm64 fallback：找 arm64 / 或 universal
+    gh release download "$DMG_RELEASE_TAG" \
+      --repo "$SHARED_REPO" \
+      --pattern "CodeChat.Boss-*.dmg" \
+      --output "$DMG_PATH" || err "DMG 下载失败 · gh release 或 auth 问题"
+  fi
+  [[ -f "$DMG_PATH" ]] || err "DMG 文件不存在 $DMG_PATH"
+
   # 动态拿挂载点（不假设卷标名）
   MOUNT_OUT=$(hdiutil attach "$DMG_PATH" -nobrowse)
   MOUNT_PATH=$(echo "$MOUNT_OUT" | tail -1 | awk -F'\t' '{print $NF}')
